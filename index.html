@@ -5,6 +5,7 @@ main{width:min(760px,100%);margin:0 auto;padding:28px 14px}.panel{background:#ff
 .drop{display:flex;align-items:center;justify-content:center;min-height:66px;border:1px dashed #cfcac0;border-radius:16px;cursor:pointer;font-size:16px;font-weight:650;color:#777;background:#fff;transition:.2s}.drop:hover{border-color:#aaa;background:#fafaf8}
 .controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}label{display:block;font-size:13px;color:#777;line-height:1.4}label input,label select{margin-top:6px}
 input[type=range]{width:100%;accent-color:#111}input[type=color]{width:100%;height:48px;margin-top:6px;border:1px solid #ddd8d0;border-radius:13px;padding:4px;background:#fff}
+input[type=color]:disabled{opacity:.4;cursor:not-allowed}
 select,button{width:100%;height:48px;margin-top:6px;padding:0 12px;border-radius:13px;border:1px solid #ddd8d0;background:#fff;color:#181818;font-family:inherit;font-size:16px;letter-spacing:-.02em}button{cursor:pointer;font-weight:700}button:active{transform:scale(.99)}
 .preview{min-height:420px;display:flex;align-items:center;justify-content:center;overflow:auto;border-radius:17px;background-color:#f1f1ee;background-image:linear-gradient(45deg,#e7e7e3 25%,transparent 25%),linear-gradient(-45deg,#e7e7e3 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e7e7e3 75%),linear-gradient(-45deg,transparent 75%,#e7e7e3 75%);background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0;position:relative}
 .zoombar{display:grid;grid-template-columns:48px 1fr 48px 64px;align-items:center;gap:6px;margin-top:10px}.zoombar button{padding:0;height:42px;margin-top:0}.zoombar span{font-size:12px;color:#888;text-align:center}
@@ -35,7 +36,13 @@ const $=s=>document.querySelector(s);let img=null,lastText="",zoom=1,personMask=
 const file=$('#file'),drop=$('#drop'),preview=$('#preview');
 drop.onclick=()=>file.click();drop.ondragover=e=>{e.preventDefault();drop.style.borderColor='#111'};drop.ondragleave=()=>drop.style.borderColor='';drop.ondrop=e=>{e.preventDefault();drop.style.borderColor='';load(e.dataTransfer.files[0])};file.onchange=e=>load(e.target.files[0]);
 ['width','bright','contrast'].forEach(id=>$('#'+id).oninput=()=>{updateLabels();saveSettings();render()});['chars','word','fg','bg'].forEach(id=>$('#'+id).oninput=()=>{saveSettings();render()});
-$('#bgMode').onchange=()=>{$('#bgColorWrap').hidden=$('#bgMode').value!=='color';saveSettings();updatePreviewBackground();render()};$('#subject').onchange=async()=>{
+function updateBgColorControl(){
+  const enabled=$('#bgMode').value==='color';
+  $('#bgColorWrap').hidden=false;
+  $('#bg').disabled=!enabled;
+  $('#bgColorWrap').style.opacity=enabled?'1':'.55';
+}
+$('#bgMode').onchange=()=>{updateBgColorControl();saveSettings();updatePreviewBackground();render()};$('#subject').onchange=async()=>{
   saveSettings();
   if($('#subject').value==='person'&&img)await makePersonMask();
   render();
@@ -46,7 +53,16 @@ function openDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open
 async function savePersistedImage(src){try{const db=await openDB();db.transaction(DB_STORE,'readwrite').objectStore(DB_STORE).put(src,'image')}catch(e){}}
 async function getPersistedImage(){try{const db=await openDB();return await new Promise((resolve,reject)=>{const req=db.transaction(DB_STORE,'readonly').objectStore(DB_STORE).get('image');req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error)})}catch(e){return null}}
 function saveSettings(){try{localStorage.setItem('ascii-settings',JSON.stringify({word:$('#word').value,chars:$('#chars').value,subject:$('#subject').value,width:$('#width').value,bright:$('#bright').value,contrast:$('#contrast').value,fg:$('#fg').value,bgMode:$('#bgMode').value,bg:$('#bg').value}))}catch(e){}}
-function restoreSettings(){try{const s=JSON.parse(localStorage.getItem('ascii-settings')||'null');if(!s)return;for(const [id,value] of Object.entries(s)){const el=$('#'+id);if(el&&value!==undefined)el.value=value}$('#bgColorWrap').hidden=$('#bgMode').value!=='color';updateLabels()}catch(e){}}
+function restoreSettings(){
+  try{
+    const s=JSON.parse(localStorage.getItem('ascii-settings')||'null');
+    if(s)for(const [id,value] of Object.entries(s)){
+      const el=$('#'+id);if(el&&value!==undefined)el.value=value;
+    }
+  }catch(e){}
+  updateBgColorControl();
+  updateLabels();
+}
 function load(f,persist=true){
   if(!f||!f.type||!f.type.startsWith('image/'))return;
   const objectUrl=URL.createObjectURL(f);
@@ -105,8 +121,33 @@ function updatePreviewBackground(){
 function drawGridToCanvas(grid,w,h,font,fg,bgColor,scale=1){const cellW=font*.6,c=document.createElement('canvas');c.width=Math.max(1,Math.ceil(w*cellW*scale));c.height=Math.max(1,Math.ceil(h*font*scale));const ctx=c.getContext('2d');if(bgColor){ctx.fillStyle=bgColor;ctx.fillRect(0,0,c.width,c.height)}ctx.font=(font*scale)+'px monospace';ctx.textBaseline='top';ctx.textAlign='left';for(let y=0;y<h;y++)for(let x=0;x<w;x++){const cell=grid[y][x],ch=typeof cell==='object'?cell.ch:cell;if(ch===' ')continue;const measured=Math.max(1,ctx.measureText(ch).width),target=cellW*scale,tone=typeof cell==='object'?cell.tone:1;ctx.save();ctx.globalAlpha=tone;ctx.fillStyle=fg;ctx.translate(x*cellW*scale,y*font*scale);ctx.scale(target/measured,1);ctx.fillText(ch,0,0);ctx.restore()}ctx.globalAlpha=1;return c}
 function render(){if(!img)return;const w=+$('#width').value,h=Math.max(1,Math.round(w*(img.height/img.width)*.6)),cv=document.createElement('canvas'),x=cv.getContext('2d',{willReadFrequently:true});cv.width=w;cv.height=h;x.drawImage(img,0,0,w,h);const d=x.getImageData(0,0,w,h).data,chars=$('#chars').value;let mask=null;if($('#subject').value==='person'&&personMask){const mc=document.createElement('canvas'),mx=mc.getContext('2d',{willReadFrequently:true});mc.width=w;mc.height=h;mx.drawImage(personMask,0,0,w,h);mask=mx.getImageData(0,0,w,h).data}const word=[...$('#word').value.trim()],grid=Array.from({length:h},()=>Array.from({length:w},()=>({ch:' ',tone:0})));let wordPos=0;
 for(let y=0;y<h;y++)for(let xx=0;xx<w;xx++){const i=(y*w+xx)*4;if(mask&&mask[i]<100)continue;const lum=.2126*d[i]+.7152*d[i+1]+.0722*d[i+2],v=adjust(lum);if(word.length){const darkness=Math.max(0,Math.min(1,(255-v)/255));if(darkness<.12){grid[y][xx].ch=' ';grid[y][xx].tone=0}else{grid[y][xx].ch=word[wordPos%word.length];grid[y][xx].tone=Math.max(.12,Math.pow(darkness,.48));wordPos++}}else{const idx=Math.min(chars.length-1,Math.floor((v/255)*(chars.length-1)));grid[y][xx].ch=chars[idx];grid[y][xx].tone=grid[y][xx].ch===' '?0:1}}
-lastText=grid.map(row=>row.map(cell=>cell.ch).join('')).join('\n');const old=$('#asciiStage');if(old)old.remove();const stage=document.createElement('div');stage.id='asciiStage';stage.style.background=$('#bgMode').value==='color'?$('#bg').value:'transparent';stage.style.padding='28px';stage.style.width='100%';stage.style.display='flex';stage.style.alignItems='center';stage.style.justifyContent='center';stage.style.overflow='hidden';const font=Math.max(4,Math.min(16,720/w)),asciiCanvas=drawGridToCanvas(grid,w,h,font,$('#fg').value,$('#bgMode').value==='color'?$('#bg').value:null);asciiCanvas.id='asciiCanvas';asciiCanvas.style.display='block';asciiCanvas.style.maxWidth='100%';asciiCanvas.style.height='auto';stage.appendChild(asciiCanvas);preview.appendChild(stage);applyZoom();updatePreviewBackground()}
-function applyZoom(){const stage=$('#asciiStage');if(stage){stage.style.transform='scale('+zoom+')';stage.style.transformOrigin='center center';stage.style.maxWidth='100%'}$('#zoomVal').textContent=Math.round(zoom*100)+'%'}
+lastText=grid.map(row=>row.map(cell=>cell.ch).join('')).join('\n');const old=$('#asciiStage');if(old)old.remove();const stage=document.createElement('div');stage.id='asciiStage';stage.style.background=$('#bgMode').value==='color'?$('#bg').value:'transparent';stage.style.padding='28px';stage.style.width='100%';stage.style.display='flex';stage.style.alignItems='center';stage.style.justifyContent='center';stage.style.overflow='visible';
+stage.dataset.width=w;stage.dataset.height=h;stage.dataset.font=Math.max(4,Math.min(16,720/w));
+stage._grid=grid;stage._renderFont=stage.dataset.font;
+const font=+stage.dataset.font,asciiCanvas=drawGridToCanvas(grid,w,h,font,$('#fg').value,$('#bgMode').value==='color'?$('#bg').value:null,Math.max(1,zoom));asciiCanvas.id='asciiCanvas';asciiCanvas.style.display='block';asciiCanvas.style.maxWidth='none';asciiCanvas.style.height='auto';stage.appendChild(asciiCanvas);preview.appendChild(stage);updatePreviewBackground();updateZoomRender()}
+function updateZoomRender(){
+  const stage=$('#asciiStage');
+  if(!stage)return;
+  const canvas=$('#asciiCanvas');
+  if(!canvas||!stage._grid)return;
+  const scale=Math.max(.25,zoom);
+  const w=+stage.dataset.width,h=+stage.dataset.height,font=+stage.dataset.font;
+  const next=drawGridToCanvas(stage._grid,w,h,font,$('#fg').value,$('#bgMode').value==='color'?$('#bg').value:null,scale);
+  next.id='asciiCanvas';
+  next.style.display='block';
+  next.style.maxWidth='none';
+  next.style.height='auto';
+  canvas.replaceWith(next);
+  const stageWidth=next.width+56;
+  stage.style.width=Math.max(stageWidth,preview.clientWidth)+'px';
+  stage.style.minHeight=Math.max(0,next.height+56)+'px';
+  stage.style.transform='none';
+  stage.style.flexShrink='0';
+  preview.scrollLeft=Math.max(0,(stageWidth-preview.clientWidth)/2);
+  preview.scrollTop=Math.max(0,(next.height+56-preview.clientHeight)/2);
+  $('#zoomVal').textContent=Math.round(scale*100)+'%';
+}
+function applyZoom(){updateZoomRender()}
 $('#zoomIn').onclick=()=>{zoom=Math.min(4,zoom+.25);applyZoom()};$('#zoomOut').onclick=()=>{zoom=Math.max(.25,zoom-.25);applyZoom()};$('#zoomReset').onclick=()=>{zoom=1;applyZoom()};
 $('#reset').onclick=async()=>{
   try{
@@ -123,5 +164,5 @@ $('#reset').onclick=async()=>{
 };
 async function ensureMinSize(blob,min=512000){if(blob.size>=min)return blob;return new Promise(resolve=>{const img2=new Image(),u=URL.createObjectURL(blob);img2.onload=()=>{URL.revokeObjectURL(u);const c=document.createElement('canvas'),ctx=c.getContext('2d'),scale=Math.max(1,Math.sqrt(min/blob.size));c.width=Math.ceil(img2.width*scale);c.height=Math.ceil(img2.height*scale);ctx.drawImage(img2,0,0,c.width,c.height);c.toBlob(b=>resolve(b&&b.size>=min?b:blob),'image/png')};img2.onerror=()=>{URL.revokeObjectURL(u);resolve(blob)};img2.src=u})}
 $('#save').onclick=async()=>{if(!lastText)return;const lines=lastText.split('\n'),font=Math.max(12,Math.min(28,3600/(+$('#width').value))),w=+$('#width').value,h=lines.length,grid=Array.from({length:h},(_,y)=>Array.from({length:w},(_,x)=>({ch:[...(lines[y]||'')][x]||' ',tone:1}))),c=drawGridToCanvas(grid,w,h,font,$('#fg').value,$('#bgMode').value==='color'?$('#bg').value:null,2),raw=await new Promise(r=>c.toBlob(r,'image/png'));if(!raw)return;const blob=await ensureMinSize(raw,512000),a=document.createElement('a');a.download='ascii-art.png';a.href=URL.createObjectURL(blob);a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
-(async()=>{restoreSettings();updateLabels();updatePreviewBackground();const persisted=await getPersistedImage();if(persisted){try{const blob=await(await fetch(persisted)).blob();load(new File([blob],'saved-image.png',{type:blob.type}),false)}catch(e){}}})();
+(async()=>{restoreSettings();updateBgColorControl();updateLabels();updatePreviewBackground();const persisted=await getPersistedImage();if(persisted){try{const blob=await(await fetch(persisted)).blob();load(new File([blob],'saved-image.png',{type:blob.type}),false)}catch(e){}}})();
 </script></body></html>
