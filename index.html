@@ -127,36 +127,31 @@ function updatePreviewBackground(){
   preview.style.backgroundSize='20px 20px';
   preview.style.backgroundPosition='0 0,0 10px,10px -10px,-10px 0';
 }
+function drawGridToSvg(grid,w,h,font,fg,bgColor){
+  const cellW=font*.6,width=Math.max(1,w*cellW),height=Math.max(1,h*font),ns='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(ns,'svg');
+  svg.setAttribute('xmlns',ns);svg.setAttribute('width',width);svg.setAttribute('height',height);svg.setAttribute('viewBox','0 0 '+width+' '+height);
+  svg.style.display='block';svg.style.overflow='visible';
+  if(bgColor){const r=document.createElementNS(ns,'rect');r.setAttribute('width',width);r.setAttribute('height',height);r.setAttribute('fill',bgColor);svg.appendChild(r)}
+  const g=document.createElementNS(ns,'g');g.setAttribute('font-family','monospace');g.setAttribute('font-size',font+'px');g.setAttribute('dominant-baseline','text-before-edge');g.setAttribute('fill',fg);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const cell=grid[y][x],ch=typeof cell==='object'?cell.ch:cell;if(ch===' ')continue;const t=document.createElementNS(ns,'text');t.setAttribute('x',x*cellW);t.setAttribute('y',y*font);t.setAttribute('opacity',typeof cell==='object'?cell.tone:1);t.textContent=ch;g.appendChild(t)}
+  svg.appendChild(g);return svg;
+}
 function drawGridToCanvas(grid,w,h,font,fg,bgColor,scale=1){const cellW=font*.6,c=document.createElement('canvas');c.width=Math.max(1,Math.ceil(w*cellW*scale));c.height=Math.max(1,Math.ceil(h*font*scale));const ctx=c.getContext('2d');if(bgColor){ctx.fillStyle=bgColor;ctx.fillRect(0,0,c.width,c.height)}ctx.font=(font*scale)+'px monospace';ctx.textBaseline='top';ctx.textAlign='left';for(let y=0;y<h;y++)for(let x=0;x<w;x++){const cell=grid[y][x],ch=typeof cell==='object'?cell.ch:cell;if(ch===' ')continue;const measured=Math.max(1,ctx.measureText(ch).width),target=cellW*scale,tone=typeof cell==='object'?cell.tone:1;ctx.save();ctx.globalAlpha=tone;ctx.fillStyle=fg;ctx.translate(x*cellW*scale,y*font*scale);ctx.scale(target/measured,1);ctx.fillText(ch,0,0);ctx.restore()}ctx.globalAlpha=1;return c}
 function render(){if(!img)return;const w=+$('#width').value,h=Math.max(1,Math.round(w*(img.height/img.width)*.6)),cv=document.createElement('canvas'),x=cv.getContext('2d',{willReadFrequently:true});cv.width=w;cv.height=h;x.drawImage(img,0,0,w,h);const d=x.getImageData(0,0,w,h).data,chars=$('#chars').value;let mask=null;if($('#subject').value==='person'&&personMask){const mc=document.createElement('canvas'),mx=mc.getContext('2d',{willReadFrequently:true});mc.width=w;mc.height=h;mx.drawImage(personMask,0,0,w,h);mask=mx.getImageData(0,0,w,h).data}const word=[...$('#word').value.trim()],grid=Array.from({length:h},()=>Array.from({length:w},()=>({ch:' ',tone:0})));let wordPos=0;
 for(let y=0;y<h;y++)for(let xx=0;xx<w;xx++){const i=(y*w+xx)*4;if(mask&&mask[i]<100)continue;const lum=.2126*d[i]+.7152*d[i+1]+.0722*d[i+2],v=adjust(lum);if(word.length){const darkness=Math.max(0,Math.min(1,(255-v)/255));if(darkness<.12){grid[y][xx].ch=' ';grid[y][xx].tone=0}else{grid[y][xx].ch=word[wordPos%word.length];grid[y][xx].tone=Math.max(.12,Math.pow(darkness,.48));wordPos++}}else{const idx=Math.min(chars.length-1,Math.floor((v/255)*(chars.length-1)));grid[y][xx].ch=chars[idx];grid[y][xx].tone=grid[y][xx].ch===' '?0:1}}
 lastText=grid.map(row=>row.map(cell=>cell.ch).join('')).join('\n');const old=$('#asciiStage');if(old)old.remove();const stage=document.createElement('div');stage.id='asciiStage';stage.style.background=$('#bgMode').value==='color'?$('#bg').value:'transparent';stage.style.padding='28px';stage.style.width='100%';stage.style.display='flex';stage.style.alignItems='center';stage.style.justifyContent='center';stage.style.overflow='visible';
 stage.dataset.width=w;stage.dataset.height=h;stage.dataset.font=Math.max(4,Math.min(16,720/w));
 stage._grid=grid;stage._renderFont=stage.dataset.font;
-const font=+stage.dataset.font,asciiCanvas=drawGridToCanvas(grid,w,h,font,$('#fg').value,$('#bgMode').value==='color'?$('#bg').value:null,Math.max(1,zoom));asciiCanvas.id='asciiCanvas';asciiCanvas.style.display='block';asciiCanvas.style.maxWidth='none';asciiCanvas.style.height='auto';stage.appendChild(asciiCanvas);preview.appendChild(stage);updatePreviewBackground();updateZoomRender()}
+const font=+stage.dataset.font,asciiSvg=drawGridToSvg(grid,w,h,font,$('#fg').value,$('#bgMode').value==='color'?$('#bg').value:null);asciiSvg.id='asciiCanvas';asciiSvg.style.display='block';asciiSvg.style.maxWidth='none';asciiSvg.style.height='auto';stage.appendChild(asciiSvg);preview.appendChild(stage);updatePreviewBackground();updateZoomRender()}
 function updateZoomRender(){
-  const stage=$('#asciiStage');
-  if(!stage)return;
-  const canvas=$('#asciiCanvas');
-  if(!canvas||!stage._grid)return;
-  const w=+stage.dataset.width,h=+stage.dataset.height,font=+stage.dataset.font;
-  const next=drawGridToCanvas(stage._grid,w,h,font,$('#fg').value,$('#bgMode').value==='color'?$('#bg').value:null,1);
-  next.id='asciiCanvas';
-  next.style.display='block';
-  next.style.maxWidth='none';
-  next.style.height='auto';
-  next.style.width=next.width+'px';
-  next.style.height=next.height+'px';
-  canvas.replaceWith(next);
-  stage.style.width='max-content';
-  stage.style.minWidth='0';
-  stage.style.minHeight='0';
-  stage.style.padding='28px';
-  stage.style.transform='scale('+zoom+')';
-  stage.style.transformOrigin='center center';
-  stage.style.flexShrink='0';
-  stage.style.overflow='visible';
-  $('#zoomVal').textContent=Math.round(zoom*100)+'%';
+  const stage=$('#asciiStage'),art=$('#asciiCanvas');
+  if(!stage||!art||!stage._grid)return;
+  art.style.transform='scale('+Math.max(.25,zoom)+')';
+  art.style.transformOrigin='center center';
+  art.style.willChange='transform';
+  stage.style.width='100%';stage.style.minWidth='0';stage.style.minHeight='0';stage.style.padding='28px';stage.style.transform='none';stage.style.overflow='visible';
+  $('#zoomVal').textContent=Math.round(Math.max(.25,zoom)*100)+'%';
 }
 function applyZoom(){updateZoomRender()}
 $('#zoomIn').onclick=()=>{zoom=Math.min(4,zoom+.25);applyZoom()};$('#zoomOut').onclick=()=>{zoom=Math.max(.25,zoom-.25);applyZoom()};$('#zoomReset').onclick=()=>{zoom=1;applyZoom()};
